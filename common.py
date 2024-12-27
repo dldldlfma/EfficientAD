@@ -9,19 +9,25 @@ def get_autoencoder(out_channels=384):
         nn.Conv2d(in_channels=3, out_channels=32, kernel_size=4, stride=2,
                   padding=1),
         nn.ReLU(inplace=True),
+        
         nn.Conv2d(in_channels=32, out_channels=32, kernel_size=4, stride=2,
                   padding=1),
         nn.ReLU(inplace=True),
+        
         nn.Conv2d(in_channels=32, out_channels=64, kernel_size=4, stride=2,
                   padding=1),
         nn.ReLU(inplace=True),
+        
         nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2,
                   padding=1),
         nn.ReLU(inplace=True),
+        
         nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=2,
                   padding=1),
         nn.ReLU(inplace=True),
+        
         nn.Conv2d(in_channels=64, out_channels=64, kernel_size=8),
+        
         # decoder
         nn.Upsample(size=3, mode='bilinear'),
         nn.Conv2d(in_channels=64, out_channels=64, kernel_size=4, stride=1,

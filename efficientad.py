@@ -18,7 +18,7 @@ def get_argparse():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--dataset', default='mvtec_ad',
                         choices=['mvtec_ad', 'mvtec_loco'])
-    parser.add_argument('-s', '--subdataset', default='bottle',
+    parser.add_argument('-s', '--subdataset', default='capsule',
                         help='One of 15 sub-datasets of Mvtec AD or 5' +
                              'sub-datasets of Mvtec LOCO')
     parser.add_argument('-o', '--output_dir', default='output/1')
@@ -31,7 +31,7 @@ def get_argparse():
                              'pretraining penalty. Or see README.md to' +
                              'download ImageNet and set to ImageNet path')
     parser.add_argument('-a', '--mvtec_ad_path',
-                        default='./mvtec_anomaly_detection',
+                        default='./datasets/MVTec',
                         help='Downloaded Mvtec AD dataset')
     parser.add_argument('-b', '--mvtec_loco_path',
                         default='./mvtec_loco_anomaly_detection',
@@ -83,8 +83,11 @@ def main():
                                     config.dataset, config.subdataset)
     test_output_dir = os.path.join(config.output_dir, 'anomaly_maps',
                                    config.dataset, config.subdataset, 'test')
-    os.makedirs(train_output_dir)
-    os.makedirs(test_output_dir)
+    try:
+        os.makedirs(train_output_dir)
+        os.makedirs(test_output_dir)
+    except Exception as e:
+        print(e)
 
     # load data
     full_train_set = ImageFolderWithoutTarget(
@@ -111,9 +114,9 @@ def main():
 
 
     train_loader = DataLoader(train_set, batch_size=1, shuffle=True,
-                              num_workers=4, pin_memory=True)
+                              num_workers=4, pin_memory=True,persistent_workers=True)
     train_loader_infinite = InfiniteDataloader(train_loader)
-    validation_loader = DataLoader(validation_set, batch_size=1)
+    validation_loader = DataLoader(validation_set, num_workers=4, batch_size=1,persistent_workers=True)
 
     if pretrain_penalty:
         # load pretraining data for penalty
@@ -127,8 +130,7 @@ def main():
         ])
         penalty_set = ImageFolderWithoutTarget(config.imagenet_train_path,
                                                transform=penalty_transform)
-        penalty_loader = DataLoader(penalty_set, batch_size=1, shuffle=True,
-                                    num_workers=4, pin_memory=True)
+        penalty_loader = DataLoader(penalty_set, batch_size=1, shuffle=True, num_workers=4, pin_memory=True,persistent_workers=True)
         penalty_loader_infinite = InfiniteDataloader(penalty_loader)
     else:
         penalty_loader_infinite = itertools.repeat(None)
@@ -157,15 +159,19 @@ def main():
         autoencoder.cuda()
 
     teacher_mean, teacher_std = teacher_normalization(teacher, train_loader)
+    
+    torch.save(
+        {
+            'teacher_mean': teacher_mean.cpu(),
+            'teacher_std': teacher_std.cpu()
+        },
+        os.path.join(train_output_dir, 'teacher_norm_stats.pth')
+    )
 
-    optimizer = torch.optim.Adam(itertools.chain(student.parameters(),
-                                                 autoencoder.parameters()),
-                                 lr=1e-4, weight_decay=1e-5)
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=int(0.95 * config.train_steps), gamma=0.1)
+    optimizer = torch.optim.Adam(itertools.chain(student.parameters(),autoencoder.parameters()), lr=1e-4, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=int(0.95 * config.train_steps), gamma=0.1)
     tqdm_obj = tqdm(range(config.train_steps))
-    for iteration, (image_st, image_ae), image_penalty in zip(
-            tqdm_obj, train_loader_infinite, penalty_loader_infinite):
+    for iteration, (image_st, image_ae), image_penalty in zip(tqdm_obj, train_loader_infinite, penalty_loader_infinite):
         if on_gpu:
             image_st = image_st.cuda()
             image_ae = image_ae.cuda()
@@ -206,13 +212,10 @@ def main():
             tqdm_obj.set_description(
                 "Current loss: {:.4f}  ".format(loss_total.item()))
 
-        if iteration % 1000 == 0:
-            torch.save(teacher, os.path.join(train_output_dir,
-                                             'teacher_tmp.pth'))
-            torch.save(student, os.path.join(train_output_dir,
-                                             'student_tmp.pth'))
-            torch.save(autoencoder, os.path.join(train_output_dir,
-                                                 'autoencoder_tmp.pth'))
+        if iteration % 10000 == 0:
+            torch.save(teacher, os.path.join(train_output_dir,f'teacher_{iteration}.pth'))
+            torch.save(student, os.path.join(train_output_dir, f'student_{iteration}.pth'))
+            torch.save(autoencoder, os.path.join(train_output_dir,f'autoencoder_{iteration}.pth'))
 
         if iteration % 10000 == 0 and iteration > 0:
             # run intermediate evaluation
@@ -244,8 +247,7 @@ def main():
 
     torch.save(teacher, os.path.join(train_output_dir, 'teacher_final.pth'))
     torch.save(student, os.path.join(train_output_dir, 'student_final.pth'))
-    torch.save(autoencoder, os.path.join(train_output_dir,
-                                         'autoencoder_final.pth'))
+    torch.save(autoencoder, os.path.join(train_output_dir, 'autoencoder_final.pth'))
 
     q_st_start, q_st_end, q_ae_start, q_ae_end = map_normalization(
         validation_loader=validation_loader, teacher=teacher, student=student,

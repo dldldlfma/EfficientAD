@@ -76,6 +76,8 @@ Training and inference:
 python efficientad.py --dataset mvtec_ad --subdataset bottle
 ```
 
+inference notebook : **inference.ipynb**
+
 Evaluation with Mvtec evaluation code:
 
 ```
